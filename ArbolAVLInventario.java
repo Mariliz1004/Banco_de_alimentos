@@ -5,7 +5,8 @@
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
-import java.sql.*;
+import java.util.ArrayList;
+import java.util.List;
 
 public class ArbolAVLInventario extends JFrame {
 
@@ -51,10 +52,11 @@ public class ArbolAVLInventario extends JFrame {
 
     private NodoAVL raiz;
     
-    // Credenciales de conexión a MySQL
-    private final String url = "jdbc:mysql://localhost:3306/banco_alimentos_db?useSSL=false&serverTimezone=UTC";
-    private final String user = "root";
-    private final String password = "";
+    // Lista para llevar el Historial de Eliminados
+    private List<Producto> historialEliminados = new ArrayList<>();
+    
+    // Contador para los códigos autoincrementables (comienza en 60 ya que hay 5 iniciales)
+    private int contadorCodigo = 60;
 
     // Componentes de la GUI
     private JTable tablaInventario;
@@ -64,8 +66,8 @@ public class ArbolAVLInventario extends JFrame {
 
     // --- CONSTRUCTOR ---
     public ArbolAVLInventario() {
-        setTitle("Sistema Banco de Alimentos - Árbol AVL + MySQL + Cálculo Integral");
-        setSize(950, 620);
+        setTitle("Sistema Banco de Alimentos - Árbol AVL + Autoincrementable + Historial");
+        setSize(1000, 650);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
         setLayout(new BorderLayout(10, 10));
@@ -74,8 +76,10 @@ public class ArbolAVLInventario extends JFrame {
         JPanel panelFormulario = new JPanel(new GridLayout(3, 4, 8, 8));
         panelFormulario.setBorder(BorderFactory.createTitledBorder(" Gestión de Alimentos en Bodega "));
 
-        panelFormulario.add(new JLabel(" Código (ej. ALI-010):"));
+        panelFormulario.add(new JLabel(" Código (Autoincrementable):"));
         txtCodigo = new JTextField();
+        txtCodigo.setEditable(false); // Bloqueado para que el sistema lo genere solo
+        txtCodigo.setBackground(new Color(230, 230, 230));
         panelFormulario.add(txtCodigo);
 
         panelFormulario.add(new JLabel(" Nombre / Unidad (ej. Arroz kg):"));
@@ -115,19 +119,21 @@ public class ArbolAVLInventario extends JFrame {
         tablaInventario = new JTable(modeloTabla);
         add(new JScrollPane(tablaInventario), BorderLayout.CENTER);
 
-        // 3. Panel Inferior (Botones de Acción y Cálculo)
+        // 3. Panel Inferior (Botones de Acción e Historial)
         JPanel panelBotones = new JPanel();
         JButton btnModificar = new JButton("Modificar Stock");
         JButton btnEliminar = new JButton("Eliminar Alimento");
         JButton btnBuscar = new JButton("Buscar Código");
+        JButton btnHistorial = new JButton("📋 Ver Historial Eliminados");
         
-        // Botones para las aplicaciones de Cálculo Integral
-        JButton btnTrapecio = new JButton("🧮 Simular Donación (Prob 4.2)");
-        JButton btnChurn = new JButton("📉 Predicción Consumo (Prob 6.6)");
+        // Botones de Métodos Numéricos / Cálculo
+        JButton btnTrapecio = new JButton("🧮 Simular Donación");
+        JButton btnChurn = new JButton("📉 Predicción Consumo");
 
         panelBotones.add(btnModificar);
         panelBotones.add(btnEliminar);
         panelBotones.add(btnBuscar);
+        panelBotones.add(btnHistorial);
         panelBotones.add(btnTrapecio);
         panelBotones.add(btnChurn);
 
@@ -138,6 +144,7 @@ public class ArbolAVLInventario extends JFrame {
         btnModificar.addActionListener(e -> modificarStock());
         btnEliminar.addActionListener(e -> eliminarAlimento());
         btnBuscar.addActionListener(e -> buscarAlimento());
+        btnHistorial.addActionListener(e -> mostrarHistorialEliminados());
         
         btnTrapecio.addActionListener(e -> calcularDonacionTrapecio());
         btnChurn.addActionListener(e -> calcularDepreciacionExponencial());
@@ -197,13 +204,20 @@ public class ArbolAVLInventario extends JFrame {
         return null;
     }
 
-    public void eliminar(String codigo) { raiz = eliminar(raiz, codigo); }
+    public void eliminar(String codigo) { 
+        // Antes de borrar, buscamos el producto para guardarlo en el historial
+        Producto p = buscar(codigo);
+        if (p != null) {
+            historialEliminados.add(p);
+        }
+        raiz = eliminarNodo(raiz, codigo); 
+    }
 
-    private NodoAVL eliminar(NodoAVL raiz, String codigo) {
+    private NodoAVL eliminarNodo(NodoAVL raiz, String codigo) {
         if (raiz == null) return null;
         int cmp = codigo.compareTo(raiz.producto.codigo);
-        if (cmp < 0) raiz.izquierdo = eliminar(raiz.izquierdo, codigo);
-        else if (cmp > 0) raiz.derecho = eliminar(raiz.derecho, codigo);
+        if (cmp < 0) raiz.izquierdo = eliminarNodo(raiz.izquierdo, codigo);
+        else if (cmp > 0) raiz.derecho = eliminarNodo(raiz.derecho, codigo);
         else {
             if ((raiz.izquierdo == null) || (raiz.derecho == null)) {
                 NodoAVL temp = raiz.izquierdo != null ? raiz.izquierdo : raiz.derecho;
@@ -211,7 +225,7 @@ public class ArbolAVLInventario extends JFrame {
             } else {
                 NodoAVL temp = obtenerMinimoNodo(raiz.derecho);
                 raiz.producto = temp.producto;
-                raiz.derecho = eliminar(raiz.derecho, temp.producto.codigo);
+                raiz.derecho = eliminarNodo(raiz.derecho, temp.producto.codigo);
             }
         }
         if (raiz == null) return null;
@@ -258,60 +272,11 @@ public class ArbolAVLInventario extends JFrame {
     public void actualizarTablaGrafica() {
         modeloTabla.setRowCount(0);
         llenarTablaInOrden(raiz);
+        // Generar automáticamente el siguiente código en el campo de texto
+        txtCodigo.setText(String.format("%03d", contadorCodigo));
     }
 
-    // --- APLICACIONES DE CÁLCULO INTEGRAL ---
-    private void calcularDonacionTrapecio() {
-        double[] tasasLectura = {10.0, 25.0, 45.0, 30.0, 15.0, 5.0, 2.0};
-        int n = tasasLectura.length - 1;
-        double h = 1.0; 
-
-        double sumaInner = 0;
-        for (int i = 1; i < n; i++) {
-            sumaInner += tasasLectura[i];
-        }
-        double totalAproximado = (h / 2.0) * (tasasLectura[0] + 2 * sumaInner + tasasLectura[n]);
-
-        JOptionPane.showMessageDialog(this, 
-            String.format("📊 AUDITORÍA NUMÉRICA DE DONACIÓN (Regla del Trapecio - Prob 4.2)\n\n" +
-                          "Muestreo de recepción en 6 horas:\n" +
-                          "• Hora 0: %.1f | Hora 1: %.1f | Hora 2: %.1f\n" +
-                          "• Hora 3: %.1f | Hora 4: %.1f | Hora 5: %.1f | Hora 6: %.1f\n\n" +
-                          "Total estimado recibido mediante la Integral Numérica: %.2f kg/unidades",
-                          tasasLectura[0], tasasLectura[1], tasasLectura[2], tasasLectura[3],
-                          tasasLectura[4], tasasLectura[5], tasasLectura[6], totalAproximado),
-            "Cálculo Integral - Regla del Trapecio", JOptionPane.INFORMATION_MESSAGE);
-    }
-
-    private void calcularDepreciacionExponencial() {
-        String codigo = JOptionPane.showInputDialog(this, "Ingrese el código del producto a analizar:");
-        if (codigo == null || codigo.trim().isEmpty()) return;
-
-        Producto p = buscar(codigo.trim());
-        if (p == null) {
-            JOptionPane.showMessageDialog(this, "Producto no encontrado.", "Error", JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-
-        double R0 = p.stockActual;
-        double k = 0.15;
-        double t = 4.0;
-
-        double consumoAcumulado = (R0 / k) * (1.0 - Math.exp(-k * t));
-        double remanenteFuturo = R0 * Math.exp(-k * t);
-
-        JOptionPane.showMessageDialog(this,
-            String.format("📉 MODELO DE CONSUMO EXPONENCIAL (CLV Adaptado - Prob 6.6)\n\n" +
-                          "Producto: %s (Stock Actual: %d)\n" +
-                          "Tasa de Despacho/Consumo mensual (k): %.2f\n" +
-                          "Proyección a: %.0f meses\n\n" +
-                          "• Stock estimado remanente en bodega: %.1f\n" +
-                          "• Consumo acumulado por las familias: %.1f",
-                          p.nombre, p.stockActual, k, t, remanenteFuturo, consumoAcumulado),
-            "Cálculo Integral - Modelo Exponencial", JOptionPane.INFORMATION_MESSAGE);
-    }
-
-    // --- CARGA DE DATOS ---
+    // --- MÉTODOS DE NEGOCIO Y ACCIONES ---
     private void inicializarBaseDeDatosYArbol() {
         Producto[] listaInicial = {
             new Producto("010", "Arroz Premium (kg)", 40, 15, 100, "Granos y Cereales (kg)"),
@@ -333,13 +298,8 @@ public class ArbolAVLInventario extends JFrame {
             String nombre = txtNombre.getText().trim();
             String categoria = (String) cmbCategoria.getSelectedItem();
 
-            if (codigo.isEmpty() || nombre.isEmpty()) {
-                JOptionPane.showMessageDialog(this, "Complete todos los campos obligatorios.", "Aviso", JOptionPane.WARNING_MESSAGE);
-                return;
-            }
-
-            if (buscar(codigo) != null) {
-                JOptionPane.showMessageDialog(this, "El código ya existe.", "Duplicado", JOptionPane.WARNING_MESSAGE);
+            if (nombre.isEmpty()) {
+                JOptionPane.showMessageDialog(this, "Complete el nombre del alimento.", "Aviso", JOptionPane.WARNING_MESSAGE);
                 return;
             }
 
@@ -349,9 +309,13 @@ public class ArbolAVLInventario extends JFrame {
 
             Producto nuevo = new Producto(codigo, nombre, stockActual, stockMinimo, stockMaximo, categoria);
             insertar(nuevo);
+            
+            // Incrementamos el contador para el próximo código automático
+            contadorCodigo += 10;
+
             actualizarTablaGrafica();
             limpiarCampos();
-            JOptionPane.showMessageDialog(this, "¡Alimento registrado exitosamente en la estructura AVL!");
+            JOptionPane.showMessageDialog(this, "¡Alimento registrado exitosamente con código " + codigo + "!");
 
         } catch (NumberFormatException e) {
             JOptionPane.showMessageDialog(this, "Ingrese números enteros válidos en los stocks.", "Error", JOptionPane.ERROR_MESSAGE);
@@ -359,7 +323,7 @@ public class ArbolAVLInventario extends JFrame {
     }
 
     private void modificarStock() {
-        String codigo = JOptionPane.showInputDialog(this, "Ingrese el código del alimento:");
+        String codigo = JOptionPane.showInputDialog(this, "Ingrese el código del alimento a modificar:");
         if (codigo == null || codigo.trim().isEmpty()) return;
 
         Producto p = buscar(codigo.trim());
@@ -386,7 +350,7 @@ public class ArbolAVLInventario extends JFrame {
     }
 
     private void eliminarAlimento() {
-        String codigo = JOptionPane.showInputDialog(this, "Ingrese el código a eliminar:");
+        String codigo = JOptionPane.showInputDialog(this, "Ingrese el código del alimento a eliminar:");
         if (codigo == null || codigo.trim().isEmpty()) return;
 
         if (buscar(codigo.trim()) == null) {
@@ -396,7 +360,7 @@ public class ArbolAVLInventario extends JFrame {
 
         eliminar(codigo.trim());
         actualizarTablaGrafica();
-        JOptionPane.showMessageDialog(this, "¡Elemento eliminado del Árbol AVL!");
+        JOptionPane.showMessageDialog(this, "¡Elemento eliminado y guardado en el historial de eliminados!");
     }
 
     private void buscarAlimento() {
@@ -411,13 +375,78 @@ public class ArbolAVLInventario extends JFrame {
         }
     }
 
+    private void mostrarHistorialEliminados() {
+        if (historialEliminados.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "El historial de eliminados está vacío.", "Historial", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        StringBuilder sb = new StringBuilder("📋 HISTORIAL DE ALIMENTOS ELIMINADOS:\n\n");
+        for (int i = 0; i < historialEliminados.size(); i++) {
+            Producto p = historialEliminados.get(i);
+            sb.append((i + 1) + ". [" + p.codigo + "] " + p.nombre + " (" + p.categoria + ") - Stock final: " + p.stockActual + "\n");
+        }
+
+        JTextArea textArea = new JTextArea(sb.toString());
+        textArea.setEditable(false);
+        JScrollPane scrollPane = new JScrollPane(textArea);
+        scrollPane.setPreferredSize(new Dimension(450, 250));
+
+        JOptionPane.showMessageDialog(this, scrollPane, "Historial de Eliminaciones", JOptionPane.INFORMATION_MESSAGE);
+    }
+
     private void limpiarCampos() {
-        txtCodigo.setText("");
         txtNombre.setText("");
         txtStockActual.setText("");
         txtStockMinimo.setText("");
         txtStockMaximo.setText("");
         cmbCategoria.setSelectedIndex(0);
+    }
+
+    // --- MÉTODOS DE CÁLCULO (MANTENIDOS) ---
+    private void calcularDonacionTrapecio() {
+        double[] tasasLectura = {10.0, 25.0, 45.0, 30.0, 15.0, 5.0, 2.0};
+        int n = tasasLectura.length - 1;
+        double h = 1.0; 
+
+        double sumaInner = 0;
+        for (int i = 1; i < n; i++) {
+            sumaInner += tasasLectura[i];
+        }
+        double totalAproximado = (h / 2.0) * (tasasLectura[0] + 2 * sumaInner + tasasLectura[n]);
+
+        JOptionPane.showMessageDialog(this, 
+            String.format("📊 AUDITORÍA NUMÉRICA DE DONACIÓN (Regla del Trapecio)\n\n" +
+                          "Muestreo de recepción en 6 horas:\n" +
+                          "• Total estimado recibido mediante la Integral Numérica: %.2f kg/unidades",
+                          totalAproximado),
+            "Cálculo Numérico", JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    private void calcularDepreciacionExponencial() {
+        String codigo = JOptionPane.showInputDialog(this, "Ingrese el código del producto a analizar:");
+        if (codigo == null || codigo.trim().isEmpty()) return;
+
+        Producto p = buscar(codigo.trim());
+        if (p == null) {
+            JOptionPane.showMessageDialog(this, "Producto no encontrado.", "Error", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        double R0 = p.stockActual;
+        double k = 0.15;
+        double t = 4.0;
+
+        double consumoAcumulado = (R0 / k) * (1.0 - Math.exp(-k * t));
+        double remanenteFuturo = R0 * Math.exp(-k * t);
+
+        JOptionPane.showMessageDialog(this,
+            String.format("📉 MODELO DE CONSUMO EXPONENCIAL\n\n" +
+                          "Producto: %s (Stock Actual: %d)\n" +
+                          "• Stock estimado remanente: %.1f\n" +
+                          "• Consumo acumulado estimado: %.1f",
+                          p.nombre, p.stockActual, remanenteFuturo, consumoAcumulado),
+            "Modelo Exponencial", JOptionPane.INFORMATION_MESSAGE);
     }
 
     public static void main(String[] args) {
